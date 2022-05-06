@@ -7,6 +7,5 @@ type Person struct {
 }
 
 type Communication struct {
-	ID    string
 	Value string
 }
