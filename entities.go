@@ -1,7 +1,9 @@
 package main
 
+import uuid "github.com/satori/go.uuid"
+
 type Person struct {
-	ID             string
+	ID             uuid.UUID
 	Name           string
 	Communications []Communication
 }

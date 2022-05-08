@@ -1,11 +1,13 @@
 package main
 
+import uuid "github.com/satori/go.uuid"
+
 type InMemoryPersonStorage struct {
-	data map[string]Person
+	data map[uuid.UUID]Person
 }
 
 func NewInMemoryPersonStorage() (storage *InMemoryPersonStorage) {
-	return &InMemoryPersonStorage{make(map[string]Person)}
+	return &InMemoryPersonStorage{make(map[uuid.UUID]Person)}
 }
 
 func (storage *InMemoryPersonStorage) Add(person Person) error {
