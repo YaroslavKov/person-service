@@ -3,28 +3,27 @@ package main
 import uuid "github.com/satori/go.uuid"
 
 type InMemoryPersonStorage struct {
-	data map[uuid.UUID]Person
+	data map[uuid.UUID]*Person
 }
 
-func NewInMemoryPersonStorage() (storage *InMemoryPersonStorage) {
-	return &InMemoryPersonStorage{make(map[uuid.UUID]Person)}
+func NewInMemoryPersonStorage() *InMemoryPersonStorage {
+	return &InMemoryPersonStorage{make(map[uuid.UUID]*Person)}
 }
 
-func (storage *InMemoryPersonStorage) Add(person Person) error {
-	_, ok := storage.data[person.ID]
+func (s *InMemoryPersonStorage) Add(person *Person) error {
+	_, ok := s.data[person.ID]
 	if ok {
-		return PersonExistError
+		return personExistError
 	}
 
-	//add ID validation for uuid
-
-	storage.data[person.ID] = person
+	s.data[person.ID] = person
 	return nil
 }
 
-func (storage *InMemoryPersonStorage) GetAll() (persons []Person) {
-	for _, person := range storage.data {
+func (s *InMemoryPersonStorage) GetAll() []*Person {
+	persons := make([]*Person, 0)
+	for _, person := range s.data {
 		persons = append(persons, person)
 	}
-	return
+	return persons
 }

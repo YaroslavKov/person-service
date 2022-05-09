@@ -3,6 +3,7 @@ package main
 import "errors"
 
 var (
-	PersonExistError    = errors.New("Person already exist")
-	NotValidPersonError = errors.New("Person not valid")
+	personExistError    = errors.New("person already exist")
+	notValidPersonError = errors.New("person not valid")
+	wrongContentType    = errors.New("wrong content type")
 )

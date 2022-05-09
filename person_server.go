@@ -2,65 +2,74 @@ package main
 
 import (
 	"encoding/json"
-	"io"
 	"net/http"
 )
 
-type PersonServer struct {
-	storage PersonStorage
+type Server struct {
+	storage Storage
 	http.Handler
 }
 
-type PersonStorage interface {
-	GetAll() []Person
-	Add(Person) error
+type Storage interface {
+	GetAll() []*Person
+	Add(*Person) error
+	//GetById(uuid uuid.UUID) *Person
 }
 
-func NewPersonServer(storage PersonStorage) (server *PersonServer) {
-	server = new(PersonServer)
-	server.storage = storage
+type ErrorResponse struct {
+	Error string `json:"error"`
+}
+
+func NewServer(storage Storage) *Server {
+	server := &Server{storage: storage}
 
 	mux := http.NewServeMux()
 	mux.Handle("/person", http.HandlerFunc(server.personHandler))
 
 	server.Handler = mux
 
-	return
+	return server
 }
 
-func (server *PersonServer) personHandler(w http.ResponseWriter, r *http.Request) {
+func (s *Server) personHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
-		server.addPerson(w, r)
+		s.addPerson(w, r)
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
 }
 
-func (server *PersonServer) addPerson(w http.ResponseWriter, r *http.Request) {
-	person, err := decodeBody(r.Body)
-	if err != nil {
+func (s *Server) addPerson(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", contentTypeJSON)
+
+	if err := isContentTypeJson(r); err != nil {
 		handleError(err, w, http.StatusBadRequest)
 		return
 	}
 
-	err = server.storage.Add(person)
-	if err == PersonExistError {
+	p := &Person{}
+	if err := json.NewDecoder(r.Body).Decode(p); err != nil {
 		handleError(err, w, http.StatusBadRequest)
+		return
+	}
+
+	if err := s.storage.Add(p); err == personExistError {
+		handleError(err, w, http.StatusUnprocessableEntity)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
-}
-
-func decodeBody(body io.Reader) (person Person, err error) {
-	err = json.NewDecoder(body).Decode(&person)
-	if err == io.EOF {
-		err = nil
-	}
-	return
+	json.NewEncoder(w).Encode(s.storage.GetAll())
 }
 
 func handleError(err error, w http.ResponseWriter, status int) {
 	w.WriteHeader(status)
-	w.Write([]byte(err.Error()))
+	json.NewEncoder(w).Encode(ErrorResponse{err.Error()})
+}
+
+func isContentTypeJson(r *http.Request) error {
+	if r.Header.Get("Content-Type") != contentTypeJSON {
+		return wrongContentType
+	}
+	return nil
 }

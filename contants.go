@@ -1,5 +1,5 @@
 package main
 
 const (
-	ContentTypeJSON = "application/json"
+	contentTypeJSON = "application/json"
 )
