@@ -18,6 +18,7 @@ type Storage interface {
 	Add(*Person) error
 	GetPersonById(uuid.UUID) *Person
 	GetPersonsByName(string) []*Person
+	GetPersonsByCommunication(string) []*Person
 	UpdatePerson(*Person) bool
 	DeletePerson(uuid.UUID) bool
 }
@@ -104,7 +105,18 @@ func (s *Server) getPersons(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	handleError(errors.New("use id or name param"), w, http.StatusBadRequest)
+	if communication := getQueryParam(r, "communication"); communication != "" {
+		p := s.storage.GetPersonsByCommunication(communication)
+		if p == nil {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		json.NewEncoder(w).Encode(p)
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	handleError(errors.New("use id, name or communication param"), w, http.StatusBadRequest)
 }
 
 func (s *Server) putPerson(w http.ResponseWriter, r *http.Request) {
@@ -122,7 +134,7 @@ func (s *Server) putPerson(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(p)
 	if ok := s.storage.UpdatePerson(p); !ok {
 		s.storage.Add(p)
-		w.WriteHeader(http.StatusCreated)
+		w.WriteHeader(http.StatusOK)
 		return
 	}
 	w.WriteHeader(http.StatusOK)

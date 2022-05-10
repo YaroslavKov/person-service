@@ -21,7 +21,7 @@ func (s *InMemoryPersonStorage) Add(person *Person) error {
 }
 
 func (s *InMemoryPersonStorage) GetAll() []*Person {
-	persons := make([]*Person, 0)
+	var persons []*Person
 	for _, person := range s.data {
 		persons = append(persons, person)
 	}
@@ -37,10 +37,23 @@ func (s *InMemoryPersonStorage) GetPersonById(id uuid.UUID) *Person {
 }
 
 func (s *InMemoryPersonStorage) GetPersonsByName(name string) []*Person {
-	persons := make([]*Person, 0)
+	var persons []*Person
 	for _, val := range s.data {
 		if val.Name == name {
 			persons = append(persons, val)
+		}
+	}
+	return persons
+}
+
+func (s *InMemoryPersonStorage) GetPersonsByCommunication(value string) []*Person {
+	var persons []*Person
+	for _, val := range s.data {
+		for _, comm := range val.Communications {
+			if comm.Value == value {
+				persons = append(persons, val)
+				break
+			}
 		}
 	}
 	return persons
