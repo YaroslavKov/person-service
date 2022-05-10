@@ -40,6 +40,13 @@ func NewServer(storage Storage) *Server {
 }
 
 func (s *Server) personHandler(w http.ResponseWriter, r *http.Request) {
+	username, password, ok := r.BasicAuth()
+
+	if !ok || username != authLogin || password != authPassword {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
 	w.Header().Set("Content-Type", contentTypeJSON)
 
 	switch r.Method {
