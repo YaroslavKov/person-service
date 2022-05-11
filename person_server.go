@@ -31,12 +31,25 @@ func NewServer(storage Storage) *Server {
 	server := &Server{storage: storage}
 
 	mux := http.NewServeMux()
-	mux.Handle("/person", http.HandlerFunc(server.personHandler))
-	mux.Handle("/person/", http.HandlerFunc(server.personHandler))
+	personHandler := server.requestAuthentication(server.personHandler)
+	mux.Handle("/person", personHandler)
+	mux.Handle("/person/", personHandler)
 
 	server.Handler = mux
 
 	return server
+}
+
+func (s *Server) requestAuthentication(next func(http.ResponseWriter, *http.Request)) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		username, password, ok := r.BasicAuth()
+
+		if !ok || username != authLogin || password != authPassword {
+			w.WriteHeader(http.StatusUnauthorized)
+		} else {
+			next(w, r)
+		}
+	})
 }
 
 func (s *Server) personHandler(w http.ResponseWriter, r *http.Request) {
