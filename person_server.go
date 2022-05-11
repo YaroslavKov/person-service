@@ -1,11 +1,16 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"github.com/rs/zerolog"
 	uuid "github.com/satori/go.uuid"
+	"io/ioutil"
 	"net/http"
+	"os"
 	"strings"
+	"time"
 )
 
 type Server struct {
@@ -31,7 +36,7 @@ func NewServer(storage Storage) *Server {
 	server := &Server{storage: storage}
 
 	mux := http.NewServeMux()
-	personHandler := server.requestAuthentication(server.personHandler)
+	personHandler := server.requestAuthentication(server.logging(http.HandlerFunc(server.personHandler)))
 	mux.Handle("/person", personHandler)
 	mux.Handle("/person/", personHandler)
 
@@ -40,26 +45,54 @@ func NewServer(storage Storage) *Server {
 	return server
 }
 
-func (s *Server) requestAuthentication(next func(http.ResponseWriter, *http.Request)) http.Handler {
+func (s *Server) requestAuthentication(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		username, password, ok := r.BasicAuth()
 
 		if !ok || username != authLogin || password != authPassword {
 			w.WriteHeader(http.StatusUnauthorized)
 		} else {
-			next(w, r)
+			next.ServeHTTP(w, r)
 		}
 	})
 }
 
+func (s *Server) logging(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		logger, f := getServiceLogger("person_server")
+		if logger == nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+		defer f.Close()
+
+		someFlag := true
+
+		var buf []byte
+		if r.Body != nil {
+			buf, _ = ioutil.ReadAll(r.Body)
+			r.Body = ioutil.NopCloser(bytes.NewBuffer(buf))
+		}
+
+		e := logger.Info().Time("time", time.Now()).Bytes("method", []byte(r.Method)).Bytes("path", []byte(r.URL.Path)).Bytes("agent", []byte(r.Header.Get("User-Agent")))
+		if r.Body != nil && isContentTypeJson(r) && someFlag {
+			e.Bytes("body", buf)
+		}
+		e.Send()
+
+		lrw := NewLoggingResponseWriter(w)
+		next.ServeHTTP(lrw, r)
+
+		e = logger.Info().Time("time", time.Now()).Int("status", lrw.statusCode)
+		if r.Body != nil && someFlag {
+			e.Bytes("body", lrw.body)
+		}
+		e.Send()
+		f.WriteString("\n")
+	})
+}
+
 func (s *Server) personHandler(w http.ResponseWriter, r *http.Request) {
-	username, password, ok := r.BasicAuth()
-
-	if !ok || username != authLogin || password != authPassword {
-		w.WriteHeader(http.StatusUnauthorized)
-		return
-	}
-
 	w.Header().Set("Content-Type", contentTypeJSON)
 
 	switch r.Method {
@@ -77,8 +110,8 @@ func (s *Server) personHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) addPerson(w http.ResponseWriter, r *http.Request) {
-	if err := isContentTypeJson(r); err != nil {
-		handleError(err, w, http.StatusBadRequest)
+	if !isContentTypeJson(r) {
+		handleError(wrongContentTypeError, w, http.StatusBadRequest)
 		return
 	}
 
@@ -140,8 +173,8 @@ func (s *Server) getPersons(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) putPerson(w http.ResponseWriter, r *http.Request) {
-	if err := isContentTypeJson(r); err != nil {
-		handleError(err, w, http.StatusBadRequest)
+	if !isContentTypeJson(r) {
+		handleError(wrongContentTypeError, w, http.StatusBadRequest)
 		return
 	}
 
@@ -184,11 +217,11 @@ func handleError(err error, w http.ResponseWriter, status int) {
 	json.NewEncoder(w).Encode(ErrorResponse{err.Error()})
 }
 
-func isContentTypeJson(r *http.Request) error {
-	if r.Header.Get("Content-Type") != contentTypeJSON {
-		return wrongContentTypeError
+func isContentTypeJson(r *http.Request) bool {
+	if r.Header.Get("Content-Type") == contentTypeJSON {
+		return true
 	}
-	return nil
+	return false
 }
 
 func getQueryParam(r *http.Request, paramName string) string {
@@ -196,4 +229,40 @@ func getQueryParam(r *http.Request, paramName string) string {
 		return keys[0]
 	}
 	return ""
+}
+
+func getServiceLogger(name string) (*zerolog.Logger, *os.File) {
+	const folder = "logs"
+
+	if err := os.Mkdir(folder, os.FileMode(0755)); err != nil && !os.IsExist(err) {
+		return nil, nil
+	}
+
+	f, err := os.OpenFile(folder+"/"+name+".log",
+		os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return nil, nil
+	}
+	mainLogger := zerolog.New(f).With().Logger()
+	return &mainLogger, f
+}
+
+type loggingResponseWriter struct {
+	http.ResponseWriter
+	statusCode int
+	body       []byte
+}
+
+func NewLoggingResponseWriter(w http.ResponseWriter) *loggingResponseWriter {
+	return &loggingResponseWriter{w, http.StatusOK, nil}
+}
+
+func (lrw *loggingResponseWriter) WriteHeader(code int) {
+	lrw.statusCode = code
+	lrw.ResponseWriter.WriteHeader(code)
+}
+
+func (lrw *loggingResponseWriter) Write(b []byte) (int, error) {
+	lrw.body = append(lrw.body, b...)
+	return lrw.ResponseWriter.Write(b)
 }
