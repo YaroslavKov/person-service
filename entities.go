@@ -15,8 +15,8 @@ type Communication struct {
 }
 
 type MongoPerson struct {
-	ID             string           `bson:"_id"`
-	Name           string           `bson:"name"`
+	ID             string           `bson:"_id" db:"id"`
+	Name           string           `bson:"name" db:"name"`
 	Communications []*Communication `bson:"communication"`
 }
 
