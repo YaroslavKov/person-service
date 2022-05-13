@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"github.com/rs/zerolog"
 	uuid "github.com/satori/go.uuid"
 	"io/ioutil"
@@ -169,7 +168,14 @@ func (s *Server) getPersons(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	handleError(errors.New("use id, name or communication param"), w, http.StatusBadRequest)
+	ps := s.storage.GetAll()
+	if ps == nil {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	json.NewEncoder(w).Encode(ps)
+	w.WriteHeader(http.StatusOK)
+	return
 }
 
 func (s *Server) putPerson(w http.ResponseWriter, r *http.Request) {
@@ -184,12 +190,13 @@ func (s *Server) putPerson(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	json.NewEncoder(w).Encode(p)
 	if ok := s.storage.UpdatePerson(p); !ok {
 		s.storage.Add(p)
+		json.NewEncoder(w).Encode(s.storage.GetPersonById(p.ID))
 		w.WriteHeader(http.StatusOK)
 		return
 	}
+	json.NewEncoder(w).Encode(s.storage.GetPersonById(p.ID))
 	w.WriteHeader(http.StatusOK)
 }
 
