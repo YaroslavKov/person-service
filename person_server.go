@@ -74,6 +74,7 @@ func (s *Server) logging(next http.Handler) http.Handler {
 			r.Body = ioutil.NopCloser(bytes.NewBuffer(buf))
 		}
 
+		f.WriteString("\n")
 		e := logger.Info().Time("time", time.Now()).Bytes("method", []byte(r.Method)).Bytes("path", []byte(r.URL.Path)).Bytes("agent", []byte(r.Header.Get("User-Agent")))
 		if r.Body != nil && isContentTypeJson(r) && someFlag {
 			e.Bytes("body", buf)
@@ -88,7 +89,6 @@ func (s *Server) logging(next http.Handler) http.Handler {
 			e.Bytes("body", lrw.body)
 		}
 		e.Send()
-		f.WriteString("\n")
 	})
 }
 
