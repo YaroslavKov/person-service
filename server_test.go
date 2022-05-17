@@ -17,6 +17,7 @@ func TestAddPerson(t *testing.T) {
 
 	t.Run("wrong content type", func(t *testing.T) {
 		req, _ := http.NewRequest("POST", "/person", nil)
+		setRequestAuth(req)
 		response := httptest.NewRecorder()
 
 		server.ServeHTTP(response, req)
@@ -39,6 +40,7 @@ func TestAddPerson(t *testing.T) {
 				</communications>
 			</person>`))
 		req.Header.Add("Content-Type", contentTypeJSON)
+		req.SetBasicAuth(authLogin, authPassword)
 		response := httptest.NewRecorder()
 
 		server.ServeHTTP(response, req)
@@ -61,6 +63,7 @@ func TestAddPerson(t *testing.T) {
 				]
 			}`
 		req, _ := http.NewRequest("POST", "/person", strings.NewReader(reqBody))
+		req.SetBasicAuth(authLogin, authPassword)
 		req.Header.Add("Content-Type", contentTypeJSON)
 		response := httptest.NewRecorder()
 
@@ -90,6 +93,7 @@ func TestAddPerson(t *testing.T) {
 			]
 		}`
 		req, _ := http.NewRequest("POST", "/person", strings.NewReader(reqBody))
+		req.SetBasicAuth(authLogin, authPassword)
 		req.Header.Add("Content-Type", contentTypeJSON)
 		response := httptest.NewRecorder()
 
@@ -121,6 +125,7 @@ func TestGetPersons(t *testing.T) {
 
 	t.Run("get persons without param", func(t *testing.T) {
 		req, _ := http.NewRequest("GET", "/person", nil)
+		req.SetBasicAuth(authLogin, authPassword)
 		response := httptest.NewRecorder()
 
 		server.ServeHTTP(response, req)
@@ -130,6 +135,7 @@ func TestGetPersons(t *testing.T) {
 
 	t.Run("get person by invalid id", func(t *testing.T) {
 		req, _ := http.NewRequest("GET", fmt.Sprintf("/person?id=123%s", p1Id.String()), nil)
+		req.SetBasicAuth(authLogin, authPassword)
 		response := httptest.NewRecorder()
 
 		server.ServeHTTP(response, req)
@@ -139,6 +145,7 @@ func TestGetPersons(t *testing.T) {
 
 	t.Run("get person if id not in storage", func(t *testing.T) {
 		req, _ := http.NewRequest("GET", "/person?id=02a883a3-13c4-4624-bbba-edc744f69530", nil)
+		req.SetBasicAuth(authLogin, authPassword)
 		response := httptest.NewRecorder()
 
 		server.ServeHTTP(response, req)
@@ -148,6 +155,7 @@ func TestGetPersons(t *testing.T) {
 
 	t.Run("get person by id", func(t *testing.T) {
 		req, _ := http.NewRequest("GET", fmt.Sprintf("/person?id=%v", p1Id.String()), nil)
+		req.SetBasicAuth(authLogin, authPassword)
 		response := httptest.NewRecorder()
 
 		server.ServeHTTP(response, req)
@@ -162,6 +170,7 @@ func TestGetPersons(t *testing.T) {
 
 	t.Run("get person if name not in storage", func(t *testing.T) {
 		req, _ := http.NewRequest("GET", "/person?name=Louis", nil)
+		req.SetBasicAuth(authLogin, authPassword)
 		response := httptest.NewRecorder()
 
 		server.ServeHTTP(response, req)
@@ -171,6 +180,7 @@ func TestGetPersons(t *testing.T) {
 
 	t.Run("get person by name", func(t *testing.T) {
 		req, _ := http.NewRequest("GET", "/person?name=Joe", nil)
+		req.SetBasicAuth(authLogin, authPassword)
 		response := httptest.NewRecorder()
 
 		server.ServeHTTP(response, req)
@@ -181,6 +191,7 @@ func TestGetPersons(t *testing.T) {
 
 	t.Run("get person if communication not in storage", func(t *testing.T) {
 		req, _ := http.NewRequest("GET", "/person?communication=random_string", nil)
+		req.SetBasicAuth(authLogin, authPassword)
 		response := httptest.NewRecorder()
 
 		server.ServeHTTP(response, req)
@@ -190,6 +201,7 @@ func TestGetPersons(t *testing.T) {
 
 	t.Run("get person by communication", func(t *testing.T) {
 		req, _ := http.NewRequest("GET", "/person?communication=box@mail.ua", nil)
+		req.SetBasicAuth(authLogin, authPassword)
 		response := httptest.NewRecorder()
 
 		server.ServeHTTP(response, req)
@@ -204,6 +216,7 @@ func TestPutPerson(t *testing.T) {
 
 	t.Run("wrong content type", func(t *testing.T) {
 		req, _ := http.NewRequest("PUT", "/person", nil)
+		req.SetBasicAuth(authLogin, authPassword)
 		response := httptest.NewRecorder()
 
 		server.ServeHTTP(response, req)
@@ -226,6 +239,7 @@ func TestPutPerson(t *testing.T) {
 				</communications>
 			</person>`))
 		req.Header.Add("Content-Type", contentTypeJSON)
+		req.SetBasicAuth(authLogin, authPassword)
 		response := httptest.NewRecorder()
 
 		server.ServeHTTP(response, req)
@@ -248,6 +262,7 @@ func TestPutPerson(t *testing.T) {
 				]
 			}`
 		req, _ := http.NewRequest("PUT", "/person", strings.NewReader(reqBody))
+		req.SetBasicAuth(authLogin, authPassword)
 		req.Header.Add("Content-Type", contentTypeJSON)
 		response := httptest.NewRecorder()
 
@@ -277,6 +292,7 @@ func TestPutPerson(t *testing.T) {
 				]
 			}`
 		req, _ := http.NewRequest("PUT", "/person", strings.NewReader(reqBody))
+		req.SetBasicAuth(authLogin, authPassword)
 		req.Header.Add("Content-Type", contentTypeJSON)
 		response := httptest.NewRecorder()
 
@@ -304,6 +320,7 @@ func TestDelete(t *testing.T) {
 
 	t.Run("wrong id", func(t *testing.T) {
 		req, _ := http.NewRequest("DELETE", fmt.Sprintf("/person/123%v", pId.String()), nil)
+		req.SetBasicAuth(authLogin, authPassword)
 		response := httptest.NewRecorder()
 
 		server.ServeHTTP(response, req)
@@ -313,6 +330,7 @@ func TestDelete(t *testing.T) {
 
 	t.Run("delete Joe", func(t *testing.T) {
 		req, _ := http.NewRequest("DELETE", "/person/02a883a3-13c4-4624-bbba-edc744f69530", nil)
+		req.SetBasicAuth(authLogin, authPassword)
 		response := httptest.NewRecorder()
 
 		server.ServeHTTP(response, req)
@@ -322,6 +340,7 @@ func TestDelete(t *testing.T) {
 
 	t.Run("delete Joe", func(t *testing.T) {
 		req, _ := http.NewRequest("DELETE", fmt.Sprintf("/person/%v", pId.String()), nil)
+		req.SetBasicAuth(authLogin, authPassword)
 		response := httptest.NewRecorder()
 
 		server.ServeHTTP(response, req)
@@ -365,4 +384,8 @@ func assertPersonArrays(t *testing.T, respBody []byte, data map[uuid.UUID]*Perso
 			personsNotEqualError(t, val, gotPerson)
 		}
 	}
+}
+
+func setRequestAuth(r *http.Request) {
+	r.SetBasicAuth(authLogin, authPassword)
 }
