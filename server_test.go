@@ -12,8 +12,10 @@ import (
 	"testing"
 )
 
+const logBody = false
+
 func TestAddPerson(t *testing.T) {
-	server := NewServer(NewInMemoryPersonStorage())
+	server := NewServer(NewInMemoryPersonStorage(), logBody)
 
 	t.Run("wrong content type", func(t *testing.T) {
 		req, _ := http.NewRequest("POST", "/person", nil)
@@ -22,7 +24,7 @@ func TestAddPerson(t *testing.T) {
 
 		server.ServeHTTP(response, req)
 
-		assertStatus(t, response.Code, http.StatusBadRequest)
+		assertStatus(t, response.Code, http.StatusUnsupportedMediaType)
 	})
 
 	t.Run("wrong person model", func(t *testing.T) {
@@ -121,7 +123,7 @@ func TestGetPersons(t *testing.T) {
 		p2Id: p2,
 	}
 	s := &InMemoryPersonStorage{data}
-	server := NewServer(s)
+	server := NewServer(s, logBody)
 
 	t.Run("get persons without param", func(t *testing.T) {
 		req, _ := http.NewRequest("GET", "/person", nil)
@@ -130,11 +132,12 @@ func TestGetPersons(t *testing.T) {
 
 		server.ServeHTTP(response, req)
 
-		assertStatus(t, response.Code, http.StatusBadRequest)
+		assertStatus(t, response.Code, http.StatusOK)
+		assertPersonsResponse(t, response.Body.Bytes(), data)
 	})
 
 	t.Run("get person by invalid id", func(t *testing.T) {
-		req, _ := http.NewRequest("GET", fmt.Sprintf("/person?id=123%s", p1Id.String()), nil)
+		req, _ := http.NewRequest("GET", fmt.Sprintf("/person/123%s", p1Id.String()), nil)
 		req.SetBasicAuth(authLogin, authPassword)
 		response := httptest.NewRecorder()
 
@@ -144,7 +147,7 @@ func TestGetPersons(t *testing.T) {
 	})
 
 	t.Run("get person if id not in storage", func(t *testing.T) {
-		req, _ := http.NewRequest("GET", "/person?id=02a883a3-13c4-4624-bbba-edc744f69530", nil)
+		req, _ := http.NewRequest("GET", "/person/02a883a3-13c4-4624-bbba-edc744f69530", nil)
 		req.SetBasicAuth(authLogin, authPassword)
 		response := httptest.NewRecorder()
 
@@ -154,7 +157,7 @@ func TestGetPersons(t *testing.T) {
 	})
 
 	t.Run("get person by id", func(t *testing.T) {
-		req, _ := http.NewRequest("GET", fmt.Sprintf("/person?id=%v", p1Id.String()), nil)
+		req, _ := http.NewRequest("GET", fmt.Sprintf("/person/%v", p1Id.String()), nil)
 		req.SetBasicAuth(authLogin, authPassword)
 		response := httptest.NewRecorder()
 
@@ -186,7 +189,7 @@ func TestGetPersons(t *testing.T) {
 		server.ServeHTTP(response, req)
 
 		assertStatus(t, response.Code, http.StatusOK)
-		assertPersonArrays(t, response.Body.Bytes(), data)
+		assertPersonsResponse(t, response.Body.Bytes(), data)
 	})
 
 	t.Run("get person if communication not in storage", func(t *testing.T) {
@@ -207,12 +210,12 @@ func TestGetPersons(t *testing.T) {
 		server.ServeHTTP(response, req)
 
 		assertStatus(t, response.Code, http.StatusOK)
-		assertPersonArrays(t, response.Body.Bytes(), data)
+		assertPersonsResponse(t, response.Body.Bytes(), data)
 	})
 }
 
 func TestPutPerson(t *testing.T) {
-	server := NewServer(NewInMemoryPersonStorage())
+	server := NewServer(NewInMemoryPersonStorage(), logBody)
 
 	t.Run("wrong content type", func(t *testing.T) {
 		req, _ := http.NewRequest("PUT", "/person", nil)
@@ -221,7 +224,7 @@ func TestPutPerson(t *testing.T) {
 
 		server.ServeHTTP(response, req)
 
-		assertStatus(t, response.Code, http.StatusBadRequest)
+		assertStatus(t, response.Code, http.StatusUnsupportedMediaType)
 	})
 
 	t.Run("wrong person model", func(t *testing.T) {
@@ -316,7 +319,7 @@ func TestDelete(t *testing.T) {
 		Communications: []*Communication{{Value: "box@mail.ua"}, {Value: "+380974583947"}},
 	}
 	data := map[uuid.UUID]*Person{pId: p}
-	server := NewServer(&InMemoryPersonStorage{data})
+	server := NewServer(&InMemoryPersonStorage{data}, logBody)
 
 	t.Run("wrong id", func(t *testing.T) {
 		req, _ := http.NewRequest("DELETE", fmt.Sprintf("/person/123%v", pId.String()), nil)
@@ -349,6 +352,36 @@ func TestDelete(t *testing.T) {
 	})
 }
 
+func TestServerMethods(t *testing.T) {
+	p1 := &Person{
+		ID:             uuid.FromStringOrNil("02a883a3-13c4-4624-bbba-edc744f69530"),
+		Name:           "Joe",
+		Communications: []*Communication{{Value: "box@mail.ua"}, {Value: "+380974583947"}},
+	}
+	p2 := &Person{
+		ID:             uuid.FromStringOrNil("02a883a3-13c4-4624-bbba-edc744f69531"),
+		Name:           "Joe",
+		Communications: []*Communication{{Value: "box@mail.ua"}, {Value: "+380974583947"}},
+	}
+	p3 := &Person{
+		ID:             uuid.FromStringOrNil("02a883a3-13c4-4624-bbba-edc744f69530"),
+		Name:           "Joe",
+		Communications: []*Communication{{Value: "box@mail.ua"}, {Value: "+380974583947"}},
+	}
+	p4 := &Person{
+		ID:             uuid.FromStringOrNil("02a883a3-13c4-4624-bbba-edc744f69534"),
+		Name:           "Joe",
+		Communications: []*Communication{{Value: "box@mail.ua"}, {Value: "+380974583947"}},
+	}
+
+	t.Run("except 2 arrays of persons", func(t *testing.T) {
+		pp1 := []*Person{p1, p2}
+		pp2 := []*Person{p3, p4}
+		pp3 := exceptPersons(pp1, pp2)
+		assertPersonsArrays(t, []*Person{p1}, pp3)
+	})
+}
+
 func assertStatus(t testing.TB, got, want int) {
 	t.Helper()
 	if got != want {
@@ -371,7 +404,7 @@ func getPersonById(persons []*Person, id uuid.UUID) *Person {
 	return nil
 }
 
-func assertPersonArrays(t *testing.T, respBody []byte, data map[uuid.UUID]*Person) {
+func assertPersonsResponse(t *testing.T, respBody []byte, data map[uuid.UUID]*Person) {
 	t.Helper()
 
 	var want, got []*Person
@@ -382,6 +415,25 @@ func assertPersonArrays(t *testing.T, respBody []byte, data map[uuid.UUID]*Perso
 		gotPerson := getPersonById(got, id)
 		if gotPerson == nil || !reflect.DeepEqual(val, getPersonById(got, id)) {
 			personsNotEqualError(t, val, gotPerson)
+		}
+	}
+}
+
+func assertPersonsArrays(t *testing.T, want, got []*Person) {
+	t.Helper()
+
+	for _, val1 := range want {
+		catch := false
+		for _, val2 := range got {
+			if reflect.DeepEqual(val1, val2) {
+				catch = true
+			}
+		}
+		if !catch {
+			spew.Config.DisablePointerAddresses = true
+			spew.Config.DisableCapacities = true
+			t.Errorf("did not get valid response, want \n%s", spew.Sdump(val1))
+			break
 		}
 	}
 }

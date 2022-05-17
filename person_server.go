@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/go-http-utils/headers"
 	"github.com/rs/zerolog"
 	uuid "github.com/satori/go.uuid"
 	"io/ioutil"
@@ -15,24 +16,25 @@ import (
 type Server struct {
 	storage Storage
 	http.Handler
+	logBody bool
 }
 
 type Storage interface {
-	GetAll() []*Person
-	Add(*Person) error
-	GetPersonById(uuid.UUID) *Person
-	GetPersonsByName(string) []*Person
-	GetPersonsByCommunication(string) []*Person
-	UpdatePerson(*Person) bool
-	DeletePerson(uuid.UUID) bool
+	GetAll() ([]*Person, error)
+	Add(*Person) (*Person, error)
+	GetPersonByID(uuid.UUID) (*Person, error)
+	GetPersonsByName(string) ([]*Person, error)
+	GetPersonsByCommunication(string) ([]*Person, error)
+	UpdatePerson(*Person) (*Person, error)
+	DeletePerson(uuid.UUID) (*Person, error)
 }
 
 type ErrorResponse struct {
 	Error string `json:"error"`
 }
 
-func NewServer(storage Storage) *Server {
-	server := &Server{storage: storage}
+func NewServer(storage Storage, logBody bool) *Server {
+	server := &Server{storage: storage, logBody: logBody}
 
 	mux := http.NewServeMux()
 	personHandler := server.requestAuthentication(server.logging(http.HandlerFunc(server.personHandler)))
@@ -65,8 +67,6 @@ func (s *Server) logging(next http.Handler) http.Handler {
 		}
 		defer f.Close()
 
-		someFlag := true
-
 		var buf []byte
 		if r.Body != nil {
 			buf, _ = ioutil.ReadAll(r.Body)
@@ -75,7 +75,7 @@ func (s *Server) logging(next http.Handler) http.Handler {
 
 		f.WriteString("\n")
 		e := logger.Info().Time("time", time.Now()).Bytes("method", []byte(r.Method)).Bytes("path", []byte(r.URL.Path)).Bytes("agent", []byte(r.Header.Get("User-Agent")))
-		if r.Body != nil && isContentTypeJson(r) && someFlag {
+		if r.Body != nil && isContentTypeJSON(r) && s.logBody {
 			e.Bytes("body", buf)
 		}
 		e.Send()
@@ -84,7 +84,7 @@ func (s *Server) logging(next http.Handler) http.Handler {
 		next.ServeHTTP(lrw, r)
 
 		e = logger.Info().Time("time", time.Now()).Int("status", lrw.statusCode)
-		if r.Body != nil && someFlag {
+		if lrw.body != nil && s.logBody {
 			e.Bytes("body", lrw.body)
 		}
 		e.Send()
@@ -109,8 +109,8 @@ func (s *Server) personHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) addPerson(w http.ResponseWriter, r *http.Request) {
-	if !isContentTypeJson(r) {
-		handleError(wrongContentTypeError, w, http.StatusBadRequest)
+	if !isContentTypeJSON(r) {
+		handleError(wrongContentTypeError, w, http.StatusUnsupportedMediaType)
 		return
 	}
 
@@ -120,57 +120,84 @@ func (s *Server) addPerson(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.storage.Add(p); err == personExistError {
+	addedPerson, err := s.storage.Add(p)
+	if err == personExistError {
 		handleError(err, w, http.StatusUnprocessableEntity)
+		return
+	} else if err != nil {
+		handleError(err, w, http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(p)
+	json.NewEncoder(w).Encode(addedPerson)
 }
 
 func (s *Server) getPersons(w http.ResponseWriter, r *http.Request) {
-	if idStr := getQueryParam(r, "id"); idStr != "" {
+	if idStr := strings.TrimPrefix(r.URL.Path, "/person/"); strings.HasPrefix(r.URL.Path, "/person/") && idStr != "" {
 		id, err := uuid.FromString(idStr)
 		if err != nil {
 			handleError(err, w, http.StatusBadRequest)
 			return
 		}
-
-		p := s.storage.GetPersonById(id)
-		if p == nil {
-			w.WriteHeader(http.StatusNotFound)
+		p, err := s.storage.GetPersonByID(id)
+		if err == personNotFoundError {
+			handleError(err, w, http.StatusNotFound)
+			return
+		} else if err != nil {
+			handleError(err, nil, http.StatusInternalServerError)
 			return
 		}
 		json.NewEncoder(w).Encode(p)
 		w.WriteHeader(http.StatusOK)
 		return
 	}
+
+	ppName := []*Person{}
+	ppComm := []*Person{}
 
 	if name := getQueryParam(r, "name"); name != "" {
-		p := s.storage.GetPersonsByName(name)
-		if p == nil {
-			w.WriteHeader(http.StatusNotFound)
+		pName, err := s.storage.GetPersonsByName(name)
+		if err == nil {
+			ppName = append(ppName, pName...)
+		} else if err != personNotFoundError {
+			handleError(err, w, http.StatusInternalServerError)
 			return
 		}
-		json.NewEncoder(w).Encode(p)
-		w.WriteHeader(http.StatusOK)
-		return
 	}
-
 	if communication := getQueryParam(r, "communication"); communication != "" {
-		p := s.storage.GetPersonsByCommunication(communication)
-		if p == nil {
-			w.WriteHeader(http.StatusNotFound)
+		pName, err := s.storage.GetPersonsByCommunication(communication)
+		if err == nil {
+			ppComm = append(ppComm, pName...)
+		} else if err != personNotFoundError {
+			handleError(err, w, http.StatusInternalServerError)
 			return
 		}
-		json.NewEncoder(w).Encode(p)
+	}
+
+	if len(r.URL.Query()) != 0 {
+		var pp []*Person
+		if len(ppName) != 0 && len(ppComm) != 0 {
+			pp = exceptPersons(ppName, ppComm)
+		} else if len(ppName) != 0 {
+			pp = ppName
+		} else if len(ppComm) != 0 {
+			pp = ppComm
+		}
+		if len(pp) == 0 {
+			handleError(personNotFoundError, w, http.StatusNotFound)
+			return
+		}
+		json.NewEncoder(w).Encode(pp)
 		w.WriteHeader(http.StatusOK)
 		return
 	}
 
-	ps := s.storage.GetAll()
-	if ps == nil {
-		w.WriteHeader(http.StatusNotFound)
+	ps, err := s.storage.GetAll()
+	if err != nil {
+		handleError(err, w, http.StatusInternalServerError)
+		return
+	} else if len(ps) == 0 {
+		handleError(personNotFoundError, w, http.StatusNotFound)
 		return
 	}
 	json.NewEncoder(w).Encode(ps)
@@ -179,8 +206,8 @@ func (s *Server) getPersons(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) putPerson(w http.ResponseWriter, r *http.Request) {
-	if !isContentTypeJson(r) {
-		handleError(wrongContentTypeError, w, http.StatusBadRequest)
+	if !isContentTypeJSON(r) {
+		handleError(wrongContentTypeError, w, http.StatusUnsupportedMediaType)
 		return
 	}
 
@@ -190,13 +217,18 @@ func (s *Server) putPerson(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if ok := s.storage.UpdatePerson(p); !ok {
-		s.storage.Add(p)
-		json.NewEncoder(w).Encode(s.storage.GetPersonById(p.ID))
+	p2, err := s.storage.UpdatePerson(p)
+	if err == personNotFoundError {
+		p2, err = s.storage.Add(p)
+		json.NewEncoder(w).Encode(p2)
 		w.WriteHeader(http.StatusOK)
 		return
 	}
-	json.NewEncoder(w).Encode(s.storage.GetPersonById(p.ID))
+	if err != nil {
+		handleError(err, w, http.StatusInternalServerError)
+		return
+	}
+	json.NewEncoder(w).Encode(p2)
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -208,11 +240,14 @@ func (s *Server) deletePerson(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if ok := s.storage.DeletePerson(id); ok {
+		_, err = s.storage.DeletePerson(id)
+		if err == personNotFoundError {
+			handleError(err, w, http.StatusNotFound)
+		} else if err != nil {
+			handleError(err, w, http.StatusInternalServerError)
+		} else if err == nil {
 			w.WriteHeader(http.StatusNoContent)
-			return
 		}
-		w.WriteHeader(http.StatusNotFound)
 		return
 	}
 
@@ -224,8 +259,8 @@ func handleError(err error, w http.ResponseWriter, status int) {
 	json.NewEncoder(w).Encode(ErrorResponse{err.Error()})
 }
 
-func isContentTypeJson(r *http.Request) bool {
-	if r.Header.Get("Content-Type") == contentTypeJSON {
+func isContentTypeJSON(r *http.Request) bool {
+	if r.Header.Get(headers.ContentType) == contentTypeJSON {
 		return true
 	}
 	return false
@@ -272,4 +307,17 @@ func (lrw *loggingResponseWriter) WriteHeader(code int) {
 func (lrw *loggingResponseWriter) Write(b []byte) (int, error) {
 	lrw.body = append(lrw.body, b...)
 	return lrw.ResponseWriter.Write(b)
+}
+
+func exceptPersons(p1 []*Person, p2 []*Person) []*Person {
+	pRes := []*Person{}
+	for _, value1 := range p1 {
+		for _, value2 := range p2 {
+			if value1.ID == value2.ID {
+				pRes = append(pRes, value1)
+				break
+			}
+		}
+	}
+	return pRes
 }

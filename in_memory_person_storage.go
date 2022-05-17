@@ -10,44 +10,47 @@ func NewInMemoryPersonStorage() *InMemoryPersonStorage {
 	return &InMemoryPersonStorage{make(map[uuid.UUID]*Person)}
 }
 
-func (s *InMemoryPersonStorage) Add(person *Person) error {
-	p := s.GetPersonById(person.ID)
-	if p != nil {
-		return personExistError
-	}
-
-	s.data[person.ID] = person
-	return nil
-}
-
-func (s *InMemoryPersonStorage) GetAll() []*Person {
-	var persons []*Person
+func (s *InMemoryPersonStorage) GetAll() ([]*Person, error) {
+	persons := []*Person{}
 	for _, person := range s.data {
 		persons = append(persons, person)
 	}
-	return persons
+	return persons, nil
 }
 
-func (s *InMemoryPersonStorage) GetPersonById(id uuid.UUID) *Person {
+func (s *InMemoryPersonStorage) Add(person *Person) (*Person, error) {
+	p, err := s.GetPersonByID(person.ID)
+	if err == nil {
+		return p, personExistError
+	}
+
+	s.data[person.ID] = person
+	return p, nil
+}
+
+func (s *InMemoryPersonStorage) GetPersonByID(id uuid.UUID) (*Person, error) {
 	p, ok := s.data[id]
 	if !ok {
-		return nil
+		return nil, personNotFoundError
 	}
-	return p
+	return p, nil
 }
 
-func (s *InMemoryPersonStorage) GetPersonsByName(name string) []*Person {
-	var persons []*Person
+func (s *InMemoryPersonStorage) GetPersonsByName(name string) ([]*Person, error) {
+	persons := []*Person{}
 	for _, val := range s.data {
 		if val.Name == name {
 			persons = append(persons, val)
 		}
 	}
-	return persons
+	if len(persons) == 0 {
+		return nil, personNotFoundError
+	}
+	return persons, nil
 }
 
-func (s *InMemoryPersonStorage) GetPersonsByCommunication(value string) []*Person {
-	var persons []*Person
+func (s *InMemoryPersonStorage) GetPersonsByCommunication(value string) ([]*Person, error) {
+	persons := []*Person{}
 	for _, val := range s.data {
 		for _, comm := range val.Communications {
 			if comm.Value == value {
@@ -56,23 +59,26 @@ func (s *InMemoryPersonStorage) GetPersonsByCommunication(value string) []*Perso
 			}
 		}
 	}
-	return persons
+	if len(persons) == 0 {
+		return nil, personNotFoundError
+	}
+	return persons, nil
 }
 
-func (s *InMemoryPersonStorage) UpdatePerson(person *Person) bool {
-	p := s.GetPersonById(person.ID)
-	if p == nil {
-		return false
+func (s *InMemoryPersonStorage) UpdatePerson(person *Person) (*Person, error) {
+	_, err := s.GetPersonByID(person.ID)
+	if err != nil {
+		return nil, err
 	}
 	s.data[person.ID] = person
-	return true
+	return person, nil
 }
 
-func (s *InMemoryPersonStorage) DeletePerson(id uuid.UUID) bool {
-	p := s.GetPersonById(id)
-	if p == nil {
-		return false
+func (s *InMemoryPersonStorage) DeletePerson(id uuid.UUID) (*Person, error) {
+	p, err := s.GetPersonByID(id)
+	if err != nil {
+		return nil, err
 	}
 	delete(s.data, id)
-	return true
+	return p, nil
 }

@@ -1,12 +1,12 @@
 package main
 
 import (
+	"database/sql"
 	"fmt"
 	"github.com/jackc/pgconn"
 	_ "github.com/jackc/pgx/v4/stdlib"
 	"github.com/jmoiron/sqlx"
 	uuid "github.com/satori/go.uuid"
-	"strings"
 )
 
 type PostgresStorage struct {
@@ -23,52 +23,57 @@ func NewPostgresStorage() (*PostgresStorage, error) {
 	return &PostgresStorage{db}, nil
 }
 
-func (s *PostgresStorage) GetAll() []*Person {
+func (s *PostgresStorage) GetAll() ([]*Person, error) {
 	var pp []*Person
 
 	err := s.db.Select(&pp, `SELECT * FROM person`)
 	if err != nil {
-		return nil
+		return nil, err
+	}
+
+	if len(pp) == 0 {
+		return nil, personNotFoundError
 	}
 
 	for _, p := range pp {
 		var cc []*Communication
-		err = s.db.Select(&cc, fmt.Sprintf(`SELECT Value
+		err = s.db.Select(&cc, `SELECT Value
 			FROM Communication
-			WHERE PersonId = '%s'`, p.ID.String()))
+			WHERE PersonId = $1`, p.ID.String())
 		if err == nil {
 			p.Communications = cc
 		}
 	}
 
-	return pp
+	return pp, nil
 }
 
-func (s *PostgresStorage) Add(p *Person) error {
-	_, err := s.db.Exec(fmt.Sprintf(`INSERT INTO person (id, name) VALUES ('%s', '%s')`, p.ID.String(), p.Name))
+func (s *PostgresStorage) Add(p *Person) (*Person, error) {
+	_, err := s.db.Exec(`INSERT INTO person (id, name) VALUES ($1, $2)`, p.ID.String(), p.Name)
 	if err != nil {
 		if pgerr, ok := err.(*pgconn.PgError); ok {
 			if pgerr.Code == "23505" {
-				return personExistError
+				return nil, personExistError
 			}
 		}
-		return err
+		return nil, err
 	}
 
 	for _, com := range p.Communications {
-		_, err = s.db.Exec(fmt.Sprintf(`INSERT INTO communication (value, personid) VALUES ('%s', '%s')`, com.Value, p.ID.String()))
+		_, err = s.db.Exec(`INSERT INTO communication (value, personid) VALUES ($1, $2)`, com.Value, p.ID.String())
 	}
 
-	return err
+	return s.GetPersonByID(p.ID)
 }
 
-func (s *PostgresStorage) GetPersonById(id uuid.UUID) *Person {
-	var pp []*Person
-	err := s.db.Select(&pp, fmt.Sprintf(`SELECT * FROM person WHERE id = '%s' LIMIT 1`, id.String()))
-	if err != nil || len(pp) == 0 {
-		return nil
+func (s *PostgresStorage) GetPersonByID(id uuid.UUID) (*Person, error) {
+	p := &Person{}
+	err := s.db.Get(p, `SELECT * FROM person WHERE id = $1`, id.String())
+	if err == sql.ErrNoRows {
+		return nil, personNotFoundError
+	} else if err != nil {
+		return nil, err
 	}
-	p := pp[0]
 
 	var cc []*Communication
 	err = s.db.Select(&cc, fmt.Sprintf(`SELECT Value
@@ -78,15 +83,16 @@ func (s *PostgresStorage) GetPersonById(id uuid.UUID) *Person {
 		p.Communications = cc
 	}
 
-	return p
+	return p, nil
 }
 
-func (s *PostgresStorage) GetPersonsByName(name string) []*Person {
-	var pp []*Person
-
-	err := s.db.Select(&pp, fmt.Sprintf(`SELECT * FROM person WHERE Name = '%s'`, name))
+func (s *PostgresStorage) GetPersonsByName(name string) ([]*Person, error) {
+	pp := []*Person{}
+	err := s.db.Select(&pp, `SELECT * FROM person WHERE Name = $1`, name)
 	if err != nil {
-		return nil
+		return nil, err
+	} else if len(pp) == 0 {
+		return nil, personNotFoundError
 	}
 
 	for _, p := range pp {
@@ -99,32 +105,39 @@ func (s *PostgresStorage) GetPersonsByName(name string) []*Person {
 		}
 	}
 
-	return pp
+	return pp, nil
 }
 
-func (s *PostgresStorage) GetPersonsByCommunication(value string) []*Person {
+func (s *PostgresStorage) GetPersonsByCommunication(value string) ([]*Person, error) {
 	var pIds []string
-
-	rows, err := s.db.Query(fmt.Sprintf(`SELECT DISTINCT PersonId
+	rows, err := s.db.Query(`SELECT DISTINCT PersonId
 		FROM Communication
-		WHERE Value = '%s'`, value))
+		WHERE Value = $1`, value)
 
 	for rows.Next() {
 		var pId uuid.UUID
 		err = rows.Scan(&pId)
 		if err == nil {
-			pIds = append(pIds, "'"+pId.String()+"'")
+			pIds = append(pIds, pId.String())
 		}
 	}
 	err = rows.Err()
-	if err != nil || len(pIds) == 0 {
-		return nil
+	if err != nil {
+		return nil, err
+	} else if len(pIds) == 0 {
+		return nil, personNotFoundError
+	}
+
+	query, args, err := sqlx.In(`SELECT * FROM person WHERE Id IN (?)`, pIds)
+	if err != nil {
+		return nil, err
 	}
 
 	var pp []*Person
-	err = s.db.Select(&pp, fmt.Sprintf(`SELECT * FROM person WHERE Id IN (%s)`, strings.Join(pIds, ", ")))
+	query = s.db.Rebind(query)
+	err = s.db.Select(&pp, query, args...)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 
 	for _, p := range pp {
@@ -137,32 +150,38 @@ func (s *PostgresStorage) GetPersonsByCommunication(value string) []*Person {
 		}
 	}
 
-	return pp
+	return pp, nil
 }
 
-func (s *PostgresStorage) UpdatePerson(p *Person) bool {
-	if s.DeletePerson(p.ID) {
-		err := s.Add(p)
-		if err == nil {
-			return true
-		}
+func (s *PostgresStorage) UpdatePerson(p *Person) (*Person, error) {
+	_, err := s.GetPersonByID(p.ID)
+	if err != nil {
+		return nil, err
 	}
-	return false
+	_, err = s.DeletePerson(p.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = s.Add(p)
+	if err == nil {
+		return nil, err
+	}
+	return s.GetPersonByID(p.ID)
 }
 
-func (s *PostgresStorage) DeletePerson(id uuid.UUID) bool {
-	param := id.String()
-	_, err := s.db.Exec(fmt.Sprintf(`
+func (s *PostgresStorage) DeletePerson(id uuid.UUID) (*Person, error) {
+	_, err := s.db.Exec(`
 		DELETE
 		FROM communication
-		WHERE personid = '%s';
-
+		WHERE personid = $1`, id.String())
+	_, err = s.db.Exec(`
 		DELETE
 		FROM person
-		WHERE id = '%s'`, param, param))
+		WHERE id = $1`, id.String())
 
 	if err != nil {
-		return false
+		return nil, err
 	}
-	return true
+	return s.GetPersonByID(id)
 }

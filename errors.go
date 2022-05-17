@@ -7,4 +7,5 @@ var (
 	notValidPersonError   = errors.New("person not valid")
 	wrongContentTypeError = errors.New("wrong content type")
 	invalidUuidError      = errors.New("invalid uuid")
+	personNotFoundError   = errors.New("person not found")
 )
